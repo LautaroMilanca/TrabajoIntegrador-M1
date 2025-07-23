@@ -72,5 +72,127 @@ Para automatizar este proceso y validar la integridad de los datos, se desarroll
    - Que los `categoriaid` en `productos` existan en `categorias`.
 4. **Carga los datos válidos** a la base de datos, descartando automáticamente aquellos registros que no cumplan las relaciones de integridad.
 
+## PI 3: Preparar y transformar los datos
+
+### Identificación de columnas semi-estructuradas
+
+Se analizaron los archivos `.csv` cargados y se identificaron columnas con potencial semi-estructurado:
+
+- `descripcion` en `productos.csv`: contiene textos complejos que podrían contener keywords relevantes.
+- `fechaagregado` en `carrito.csv`: contiene fecha y hora que pueden separarse para facilitar análisis.
+
+### Transformaciones realizadas
+
+Se desarrolló el notebook `Transformaciones.ipynb`, donde se aplicaron las siguientes acciones:
+
+- Separación de `fechaagregado` en `fecha` y `hora`.
+- Conversión de descripciones a minúsculas y detección de palabras clave.
+
+
+## PI 4: Explorar los datos
+
+### Consultas SQL 
+
+Se creó el script `Querys.sql` con un conjunto de queries en SQL para detectar problemas comunes de calidad de datos, como:
+
+- Claves foráneas huérfanas
+- Productos sin stock 
+- Pagos con estados inválidos
+
+### ORM
+
+Se desarrolló el script `ORM.py` utilizando **SQLAlchemy ORM** para responder a preguntas clave del negocio.
+
+## PI 5: Identificar estructura y relaciones
+
+### Llaves primarias y foráneas
+
+**Llaves primarias:**
+
+- `usuarios.usuarioid`
+- `categorias.categoriaid`
+- `productos.productoid`
+- `ordenes.ordenid`
+- `detalleordenes.detalleid`
+- `direccionesenvio.direccionid`
+- `carrito.carritoid`
+- `metodospago.metodopagoid`
+- `ordenesmetodospago.ordenmetodoid`
+- `resenasproductos.resenaid`
+- `historialpagos.pagoid`
+
+**Llaves foráneas:**
+
+- `ordenes.usuarioid` → `usuarios.usuarioid`
+- `productos.categoriaid` → `categorias.categoriaid`
+- `detalleordenes.ordenid` → `ordenes.ordenid`
+- `detalleordenes.productoid` → `productos.productoid`
+- `ordenesmetodospago.ordenid` → `ordenes.ordenid`
+- `ordenesmetodospago.metodopagoid` → `metodospago.metodopagoid`
+- `historialpagos.ordenid` → `ordenes.ordenid`
+- `historialpagos.metodopagoid` → `metodospago.metodopagoid`
+- `resenasproductos.usuarioid` → `usuarios.usuarioid`
+- `resenasproductos.productoid` → `productos.productoid`
+- `direccionesenvio.usuarioid` → `usuarios.usuarioid`
+- `carrito.usuarioid` → `usuarios.usuarioid`
+- `carrito.productoid` → `productos.productoid`
+
+### Atributos clave para responder preguntas de negocio
+
+Para responder las preguntas propuestas, se identificaron los siguientes atributos relevantes:
+
+| Pregunta de negocio                         | Atributos clave                                                                    |
+| ------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Productos más vendidos por volumen          | `detalleordenes.cantidad`, `productos.nombre`                                      |
+| Ticket promedio por orden                   | `ordenes.total`                                                                    |
+| Categorías con más productos vendidos       | `productos.categoriaid`, `detalleordenes.cantidad`                                 |
+| Día de la semana con más ventas             | `ordenes.fechaorden`                                                               |
+| Variación de órdenes por mes                | `ordenes.fechaorden`, `ordenes.ordenid`                                            |
+| Métodos de pago más utilizados              | `ordenesmetodospago.metodopagoid`                                                  |
+| Monto promedio por método de pago           | `ordenesmetodospago.montopagado`                                                   |
+| Órdenes con múltiples métodos de pago       | `ordenesmetodospago.ordenid` (agrupadas)                                           |
+| Pagos en estado 'Procesando' o 'Fallido'    | `historialpagos.estadopago`                                                        |
+| Recaudación mensual                         | `historialpagos.monto`, `historialpagos.fechapago`                                 |
+| Altas de usuarios por mes                   | `usuarios.fecharegistro`                                                           |
+| Usuarios con más de una orden               | `ordenes.usuarioid` (agrupados)                                                    |
+| Usuarios sin órdenes                        | `usuarios.usuarioid`, `ordenes.usuarioid`                                          |
+| Usuarios que más gastaron                   | `ordenes.usuarioid`, `ordenes.total`                                               |
+| Usuarios que dejaron reseñas                | `resenasproductos.usuarioid`                                                       |
+| Productos con alto stock y bajas ventas     | `productos.stock`, `detalleordenes.productoid`                                     |
+| Productos fuera de stock                    | `productos.stock` = 0                                                              |
+| Productos peor calificados                  | `resenasproductos.calificacion`                                                    |
+| Productos con más reseñas                   | `resenasproductos.productoid` (conteo)                                             |
+| Categoría con mayor valor económico vendido | `detalleordenes.cantidad * detalleordenes.preciounitario`, `productos.categoriaid` |
+
+## PI 6: Evaluar la calidad de los datos
+
+### Análisis realizado
+
+Para detectar problemas de calidad en los datos, se utilizaron dos enfoques complementarios:
+
+1. **Consultas SQL en el script `Querys.sql`**, que detectaron:
+   - Claves foráneas inválidas.
+   - Pagos con estados inválidos.
+   - Entre otras
+
+2. **ORM en `ORM.py`**, donde se aplicaron filtros y funciones agregadas para:
+   - Contar productos con stock cero
+   - Validar la existencia de múltiples métodos de pago por orden
+   - Calcular medias, totales y agrupaciones que revelan anomalías en los datos
+   - Entre otras
+
+### Inconsistencias detectadas
+
+- Registros con claves foráneas que no existen en las tablas principales.
+- Órdenes sin pagos asociados
+- Pagos con estado `NULL`, `Procesando` o `Fallido`
+- Entre otras
+
+### Acciones  aplicadas
+
+- Se desarrolló el script `ValidaciondeDatos.py` que descarta automáticamente los registros con claves foráneas inválidas antes de insertarlos.
+- Se estandarizaron nombres de columnas y se transformaron fechas y campos textuales para mejorar su limpieza y análisis.
+- Se documentaron los errores para su posterior revisión o depuración.
+
 ---
 
