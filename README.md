@@ -1,4 +1,4 @@
-# Proyecto Integrador 1 – Configuración de Base de Datos y Carga de Datos
+# Primer avance 
 
 ## PI 1: Configurar el entorno de base de datos
 
@@ -194,5 +194,128 @@ Para detectar problemas de calidad en los datos, se utilizaron dos enfoques comp
 - Se estandarizaron nombres de columnas y se transformaron fechas y campos textuales para mejorar su limpieza y análisis.
 - Se documentaron los errores para su posterior revisión o depuración.
 
+# Segundo avance 
+
+## PI 1: Análisis de negocio y descubrimiento de requisitos
+
+### Objetivos del negocio
+
+A partir de las preguntas planteadas, el negocio desea:
+
+- Conocer los **productos más vendidos** y los **peor calificados**.
+- Detectar **usuarios que más compran**.
+- Evaluar el **rendimiento de categorías** y su valor económico generado.
+- Medir el uso y efectividad de **métodos de pago**.
+- Controlar **órdenes por período**, **ticket promedio**, y **ventas por día**.
+- Supervisar el **estado de los pagos** y el **almacenamiento de stock**.
+
+### Datos disponibles
+
+A través del modelado de base de datos relacional y la carga de archivos CSV, podemos obtener la siguiente informacion:
+
+- Detalles de cada producto (`productos`, `categorias`)
+- Información completa de los usuarios (`usuarios`)
+- Reseñas de productos (`resenasproductos`)
+- Transacciones de compra (`ordenes`, `detalleordenes`)
+- Pagos realizados y sus métodos (`historialpagos`, `ordenesmetodospago`, `metodospago`)
+- Información de stock y carrito (`carrito`)
+- Direcciones y fechas de envío (`direccionesenvio`)
+
+## PI 2: Identificación de componentes del modelo dimensional
+### Hechos (Fact Tables)
+
+Se nombra a contiuacion los  hechos  para el modelo dimensional:
+
+- **HechoDetalleOrdenes**: permite calcular métricas como:
+  - `cantidad` de productos vendidos
+  - `precio_unitario` de cada ítem
+  - `total_linea` (cantidad * precio_unitario)
+
+- **HechoOrdenes**: registra:
+  - `total` por orden
+  - `estado` de la orden
+
+- **HechoPagos**: toma información de las tablas `historialpagos` y `ordenesmetodospago`:
+  - `montopagado`
+  - `estado_pago`
+  - permite analizar múltiples métodos de pago por orden
+
 ---
 
+### Dimensiones
+
+Las siguientes dimensiones fueron diseñadas para permitir el análisis por filtros y agrupaciones:
+
+- **dim_usuario**: incluye información del cliente (`nombre`, `email`, `fecharegistro`)
+- **dim_producto**: incluye `nombre`, `descripcion`, `precio`, `stock`
+- **dim_categoria**: describe el tipo de producto
+- **dim_metodopago**: describe cómo se pagó la orden
+- **dim_fecha_orden**: extraída de `ordenes.fechaorden`, con descomposición en año, mes, día, semana, día de la semana
+- **dim_estado_pago**: para evaluar el estado de los pagos ('Procesando', 'Fallido', 'Completado', etc.)
+
+
+### Esquema estrella
+Se diseñó un modelo dimensional en forma de estrella siguiendo la metodología de Kimball, centrado en la tabla de **HechoDetalleOrdenes**. Este modelo permite responder de forma eficiente a las preguntas del negocio relacionadas con ventas, productos, clientes y pagos.
+
+                          dim_usuario
+                               |
+                          dim_producto ---- dim_categoria
+                               |
+       dim_fecha_orden --- detalleordenes --- dim_metodopago
+                               |
+                         historialpagos / ordenesmetodospago
+
+## PI 3: Diseño del modelo de datos
+
+### Slowly Changing Dimensions (SCD)
+
+Para capturar la evolución de los datos en el tiempo y preservar el historial relevante para el análisis, se aplicaron estrategias de Slowly Changing Dimensions (SCD):
+
+- **`dim_categoria` – SCD Tipo 1**  
+  Se espera que los cambios en categorías (como nombre o descripción) sean meras correcciones. No es necesario conservar el valor anterior.
+
+- **`dim_usuario` – SCD Tipo 2**  
+  Atributos como nombre, email o fecha de registro pueden cambiar. Se conservará historial mediante columnas como:  
+  - `fecha_inicio`  
+  - `fecha_fin`  
+  - `es_actual`
+
+- **`dim_producto` – SCD Tipo 2**  
+  Cambios en precio, stock o descripción impactan el análisis histórico. Se aplicará versión temporal con los mismos campos de control que en `dim_usuario`.
+
+- **`dim_metodopago` – SCD Tipo 2**  
+  Aunque es menos frecuente, si se modifican las descripciones o condiciones de un método de pago, se conservará el historial.
+
+- **`dim_fecha_orden` – No aplica SCD**  
+  Las fechas son inmutables. Esta dimensión es puramente derivada y no requiere versionado.
+
+- **`dim_estado_pago` – No aplica SCD**  
+  Los estados son categóricos y fijos. Si bien pueden cambiar a lo largo del proceso (por ejemplo, de "Procesando" a "Completado"), eso se maneja desde la tabla de hechos o de eventos, no como SCD en la dimensión.
+
+
+## PI 4: Documentación y comunicación del modelo
+
+### Diagrama Entidad-Relación (ER)
+
+Se construyó un **modelo en estrella** para representar el esquema dimensional de la base de datos de e-commerce. Este modelo facilita la exploración y el análisis de los datos, estructurándolos en torno a una tabla de hechos central y múltiples dimensiones.
+
+#### Estructura del modelo:
+
+- **Hecho principal**:
+  - `detalleordenes`: representa cada ítem comprado en una orden, incluyendo cantidad y precio unitario.
+
+- **Dimensiones conectadas**:
+  - `dim_usuario`: información del cliente (`nombre`, `email`, `fecharegistro`).
+  - `dim_producto`: detalles del producto (`nombre`, `descripcion`, `precio`, `stock`).
+  - `dim_categoria`: categoría del producto.
+  - `dim_metodopago`: método utilizado en la transacción.
+  - `dim_fecha_orden`: fecha de la compra, descompuesta en año, mes, día, semana, día de la semana.
+  - `dim_estado_pago`: estado del pago (procesando, completado, fallido, etc.).
+
+### Justificación del diseño
+
+- Se utilizó la **metodología Kimball**, priorizando la simplicidad, claridad y eficiencia de consultas analíticas.
+- Las dimensiones fueron seleccionadas cuidadosamente para cubrir los ejes más relevantes del análisis de negocio: producto, usuario, tiempo, método de pago y estado de la transacción.
+- Se aplicaron estrategias de Slowly Changing Dimensions (SCD) donde fue necesario mantener el historial de cambios (tipo 2 en `dim_usuario`, `dim_producto`, `dim_metodopago`).
+- La dimensión `dim_fecha_orden` permite análisis temporales flexibles (por día, semana, mes).
+- Se normalizó el estado del pago (`dim_estado_pago`) para facilitar reportes sobre transacciones pendientes, fallidas o completadas.
