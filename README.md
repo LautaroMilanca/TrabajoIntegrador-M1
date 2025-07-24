@@ -319,3 +319,120 @@ Se construyó un **modelo en estrella** para representar el esquema dimensional 
 - Se aplicaron estrategias de Slowly Changing Dimensions (SCD) donde fue necesario mantener el historial de cambios (tipo 2 en `dim_usuario`, `dim_producto`, `dim_metodopago`).
 - La dimensión `dim_fecha_orden` permite análisis temporales flexibles (por día, semana, mes).
 - Se normalizó el estado del pago (`dim_estado_pago`) para facilitar reportes sobre transacciones pendientes, fallidas o completadas.
+
+
+# Tercer avance 
+
+## PI 1: Modelo
+
+### Implementación del modelo físico en SQL
+
+Se implementaron los scripts SQL correspondientes a la capa de análisis. El modelo se basa en una arquitectura en estrella, donde:
+
+- `hechos_ventas` representa la tabla de hechos principal.
+- Las tablas dimensionales (`dim_usuario`, `dim_producto`, `dim_categoria`, `dim_metodopago`, `dim_fecha_orden`, `dim_estado_pago`) proveen contexto para analizar las métricas de negocio.
+
+Los scripts fueron organizados en la carpeta:
+
+```
+SQL avance 3/
+├── TablahechosVentas.sql
+├── TablasDimensionales.sql
+```
+
+## PI 2: Transformación
+
+En esta etapa tenía previsto realizar la transformación completa de los datos utilizando **DBT (Data Build Tool)**.
+Por cuestiones de tiempo, no llegué a implementarlo completamente, pero definí el plan detallado que seguiría para garantizar limpieza, trazabilidad y análisis eficiente.
+
+### Plan de transformación definido
+
+#### 1. Limpieza y normalización de datos
+
+En una primera capa de staging (bronze → silver), **hubiese aplicado transformaciones iniciales** sobre las tablas crudas para asegurar calidad. Algunas tareas planificadas fueron:
+
+- Convertir los tipos de datos apropiadamente (por ejemplo, `fechaorden` a `DATE`).
+- Aplicar limpieza de strings (`LOWER`, `TRIM`, eliminación de espacios) para unificar formatos en campos como `email`, `nombre`, etc.
+- Detectar y remover duplicados.
+- Validar claves foráneas y registros huérfanos.
+- Normalizar formatos y asegurar consistencia semántica entre tablas.
+
+#### 2. Creación de tablas de hechos y dimensiones
+
+En la capa silver/gold, tenía diseñado crear:
+
+- **Tablas dimensionales**: `dim_usuario`, `dim_producto`, `dim_categoria`, `dim_metodopago`, `dim_fecha`, `dim_estado_pago`, cada una con sus atributos clave para análisis por segmentos.
+- **Tabla de hechos**: `hechos_ventas`, que incluiría métricas clave como cantidad, precio unitario, total por línea, y claves foráneas hacia las dimensiones.
+
+Estas transformaciones se hubiesen construido en modelos `.sql` dentro de la estructura de carpetas de DBT, con dependencias bien definidas.
+
+#### 3. Slowly Changing Dimensions (SCD)
+
+Otra de las transformaciones que tenía planificado implementar era el manejo de **dimensiones que cambian con el tiempo**. En particular:
+
+- **SCD Tipo 1** para `dim_categoria`, ya que los cambios no necesitan conservar historial.
+- **SCD Tipo 2** para `dim_usuario`, `dim_producto`, `dim_metodopago`, incorporando columnas como `fecha_inicio`, `fecha_fin` y `es_actual` para mantener versiones históricas y trazabilidad temporal.
+
+## PI 3: Relaciones
+
+### Manejo de relaciones entre modelos
+
+Como parte del trabajo también se contempló la gestión de relaciones entre modelos en DBT. 
+
+Dado que DBT no aplica integridad referencial directamente en la base de datos, la estrategia a seguir  hubiera incluido los siguientes puntos clave para garantizar coherencia entre hechos y dimensiones:
+
+### Relaciones a gestionar
+
+- Relación entre `hechos_ventas.usuarioid` y `dim_usuario.usuarioid`
+- Relación entre `hechos_ventas.productoid` y `dim_producto.productoid`
+- Relación entre `dim_producto.categoriaid` y `dim_categoria.categoriaid`
+- Relación entre `hechos_ventas.fecha` y `dim_fecha_orden.fecha`
+- Relación entre `hechos_ventas.metodopagoid` y `dim_metodopago.metodopagoid`
+- Relación entre `hechos_ventas.estadopago` y `dim_estado_pago.estado`
+
+### Validaciones a considerar con DBT
+
+En un escenario ideal, se hubieran incorporado pruebas en DBT (`tests`) sobre los modelos transformados para validar relaciones:
+
+```yaml
+tests:
+  - relationships:
+      model: hechos_ventas
+      column_name: usuarioid
+      to: ref('dim_usuario')
+      field: usuarioid
+```
+
+Este tipo de pruebas permite:
+
+- Detectar claves huérfanas (por ejemplo, ventas con usuarios inexistentes)
+- Garantizar consistencia entre dimensiones y hechos
+- Mejorar la confiabilidad de los datos para dashboards o análisis posteriores
+
+## PI 4: Insights
+
+### Insights del negocio – Storytelling
+
+Tras la carga, validación y exploración de los datos, se obtuvieron diversos **hallazgos clave** que permiten entender mejor el comportamiento de los usuarios, los productos más exitosos y el desempeño comercial general. Estos insights fueron obtenidos mediante consultas SQL y análisis con Python (SQLAlchemy ORM).
+
+#### 1. ¿Qué compran los usuarios y cómo?
+
+Los productos más vendidos pertenecen principalmente a las categorías **Electrónica** y **Moda**, revelando una alta demanda en tecnología y vestimenta. Se identificó un patrón de compra frecuente con preferencia por productos de precio medio y buena valoración.
+
+Los métodos de pago más utilizados fueron **tarjeta de crédito** y **transferencia bancaria**, destacando la necesidad de mantener múltiples opciones activas para facilitar conversiones.
+
+#### 2. ¿Cuándo compran más?
+
+La mayoría de las compras se concentran los **días lunes y viernes**, con picos mensuales cerca del **inicio de cada mes**, lo cual puede estar relacionado con fechas de cobro. 
+
+#### 3. ¿Qué productos no se venden?
+
+Algunos productos presentan alto stock pero muy pocas ventas. Esto indica un exceso de inventario y una posible mala elección de surtido. Se identificaron productos con buenas calificaciones pero baja rotación, lo cual sugiere falta de visibilidad.
+
+#### 4. ¿Cómo son nuestros usuarios?
+
+Más del 30% de los usuarios registrados **nunca han realizado una compra**, revelando una oportunidad para estrategias de reactivación (emails, cupones). Por otro lado, un grupo pequeño de usuarios concentra una gran parte de las ventas, siendo **clientes fieles o frecuentes**.
+
+#### 5. ¿Cuánto recaudamos?
+
+Se calculó la **recaudación mensual** total y por método de pago, permitiendo evaluar el desempeño financiero. También se detectaron algunos pagos en estado **‘Procesando’ o ‘Fallido’**, lo que sugiere revisar las integraciones con los proveedores de pago.
